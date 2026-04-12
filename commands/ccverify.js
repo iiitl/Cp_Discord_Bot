@@ -32,7 +32,7 @@ export default {
 
         try {
             const browser = await puppeteer.launch({
-                headless: 'new', // Ensures compatibility with latest Puppeteer versions
+                headless: 'new',
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
                 args: [
                     '--no-sandbox',
@@ -45,10 +45,12 @@ export default {
                     '--disable-default-apps',
                     '--disable-features=site-per-process',
                 ],
-                protocolTimeout: 60000, // Increase timeout to avoid Network.enable issues
+                protocolTimeout: 60000,
             })
+
             const page = await browser.newPage()
             await page.goto(profileUrl, { waitUntil: 'networkidle2' })
+
             let stars = 'No ★'
             let rating = 0
 
@@ -113,19 +115,42 @@ export default {
                 '★★★★★★',
                 '★★★★★★★',
             ]
+
             let role = interaction.guild.roles.cache.find(
                 (role) => role.name === roleName
             )
+
+            // 🔥 CHECK PERMISSIONS BEFORE CREATING ROLE
+            const botMember = interaction.guild.members.me
+
+            if (!botMember.permissions.has("ManageRoles")) {
+                return await interaction.editReply(
+                    "❌ Bot lacks **Manage Roles** permission."
+                )
+            }
+
             if (!role) {
-                await interaction.guild.roles.create({ name: roleName })
-                role = interaction.guild.roles.cache.find(
-                    (role) => role.name === roleName
+                try {
+                    role = await interaction.guild.roles.create({ name: roleName })
+                } catch (err) {
+                    console.error(err)
+                    return await interaction.editReply(
+                        "❌ Failed to create role. Check bot permissions."
+                    )
+                }
+            }
+
+            // 🔥 CHECK ROLE HIERARCHY
+            if (role.position >= botMember.roles.highest.position) {
+                return await interaction.editReply(
+                    "❌ Cannot assign this role due to role hierarchy."
                 )
             }
 
             const member = interaction.guild.members.cache.get(
                 interaction.user.id
             )
+
             if (!member) {
                 return await interaction.editReply(
                     `Could not find the member in the server. Please try again.`
@@ -139,6 +164,7 @@ export default {
             }
 
             const user = await getEntryByPlatformMemID('codechef', member.id)
+
             if (user && user.platform == 'codechef') {
                 updateEntryByPlatformMemID(
                     handle,
@@ -151,18 +177,34 @@ export default {
                 insertEntry(member.id, handle, 'codechef', rating, roleName)
             }
 
-            roleTypes.forEach(async (element) => {
-                if (member.roles.cache.some((role) => role.name === element)) {
-                    await member.roles.remove(
-                        member.roles.cache.find((role) => role.name === element)
-                    )
+            // 🔥 REMOVE OLD ROLES SAFELY
+            for (const element of roleTypes) {
+                const existingRole = member.roles.cache.find(
+                    (r) => r.name === element
+                )
+                if (existingRole) {
+                    try {
+                        await member.roles.remove(existingRole)
+                    } catch (err) {
+                        console.error(err)
+                    }
                 }
-            })
+            }
 
-            await member.roles.add(role)
+            // 🔥 SAFE ROLE ASSIGNMENT
+            try {
+                await member.roles.add(role)
+            } catch (err) {
+                console.error(err)
+                return await interaction.editReply(
+                    "❌ Failed to assign role. Please check permissions."
+                )
+            }
+
             return await interaction.editReply(
                 `Successfully verified CodeChef account \`${handle}\` and assigned the \`${roleName}\` role.`
             )
+
         } catch (error) {
             console.error(error)
             return await interaction.editReply(
